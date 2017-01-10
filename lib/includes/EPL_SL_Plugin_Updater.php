@@ -19,16 +19,16 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 /**
  * Allows plugins to use their own update API.
  *
- * @author Pippin Williamson
- * @version 1.6.6
+ * @author Easy Digital Downloads
+ * @version 1.6.8
  * @since 1.0
  */
 class EPL_SL_Plugin_Updater {
-	private $api_url   = '';
-	private $api_data  = array();
-	private $name      = '';
-	private $slug      = '';
-	private $version   = '';
+	private $api_url     = '';
+	private $api_data    = array();
+	private $name        = '';
+	private $slug        = '';
+	private $version     = '';
 	private $wp_override = false;
 	private $cache_key   = '';
 
@@ -46,10 +46,10 @@ class EPL_SL_Plugin_Updater {
 
 		global $epl_plugin_data;
 
-		$this->api_url  = trailingslashit( $_api_url );
-		$this->api_data = $_api_data;
-		$this->name     = plugin_basename( $_plugin_file );
-		$this->slug     = basename( $_plugin_file, '.php' );
+		$this->api_url     = trailingslashit( $_api_url );
+		$this->api_data    = $_api_data;
+		$this->name        = plugin_basename( $_plugin_file );
+		$this->slug        = basename( $_plugin_file, '.php' );
 		$this->version     = $_api_data['version'];
 		$this->wp_override = isset( $_api_data['wp_override'] ) ? (bool) $_api_data['wp_override'] : false;
 
@@ -71,9 +71,9 @@ class EPL_SL_Plugin_Updater {
 	 */
 	public function init() {
 
-		add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_update' ), 10 );
+		add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_update' ) );
 		add_filter( 'plugins_api', array( $this, 'plugins_api_filter' ), 10, 3 );
-		remove_action( 'after_plugin_row_' . $this->name, 'wp_plugin_update_row', 10, 2 );
+		remove_action( 'after_plugin_row_' . $this->name, 'wp_plugin_update_row', 10 );
 		add_action( 'after_plugin_row_' . $this->name, array( $this, 'show_update_notification' ), 10, 2 );
 		add_action( 'admin_init', array( $this, 'show_changelog' ) );
 
@@ -96,11 +96,11 @@ class EPL_SL_Plugin_Updater {
 
 		global $pagenow;
 
-		if( ! is_object( $_transient_data ) ) {
+		if ( ! is_object( $_transient_data ) ) {
 			$_transient_data = new stdClass;
 		}
 
-		if( 'plugins.php' == $pagenow && is_multisite() ) {
+		if ( 'plugins.php' == $pagenow && is_multisite() ) {
 			return $_transient_data;
 		}
 
@@ -108,12 +108,13 @@ class EPL_SL_Plugin_Updater {
 			return $_transient_data;
 		}
 
-		$version_info = get_transient( $this->cache_key );
+		$version_info = $this->get_cached_version_info();
 
 		if ( false === $version_info ) {
-			$version_info = $this->api_request( 'plugin_latest_version', array( 'slug' => $this->slug ) );
+			$version_info = $this->api_request( 'plugin_latest_version', array( 'slug' => $this->slug, 'beta' => ! empty( $this->api_data['beta'] ) ) );
 
-			set_transient( $this->cache_key, $version_info, 3600 );
+			$this->set_version_info_cache( $version_info );
+
 		}
 
 		if ( false !== $version_info && is_object( $version_info ) && isset( $version_info->new_version ) ) {
@@ -124,7 +125,7 @@ class EPL_SL_Plugin_Updater {
 
 			}
 
-			$_transient_data->last_checked           = time();
+			$_transient_data->last_checked           = current_time( 'timestamp' );
 			$_transient_data->checked[ $this->name ] = $this->version;
 
 		}
@@ -165,22 +166,25 @@ class EPL_SL_Plugin_Updater {
 
 		if ( empty( $update_cache->response ) || empty( $update_cache->response[ $this->name ] ) ) {
 
-			$version_info = get_transient( $this->cache_key );
-			if( false === $version_info ) {
+			$version_info = $this->get_cached_version_info();
 
-				$version_info = $this->api_request( 'plugin_latest_version', array( 'slug' => $this->slug ) );
-				set_transient( $this->cache_key, $version_info, 3600 );
+			if ( false === $version_info ) {
+				$version_info = $this->api_request( 'plugin_latest_version', array( 'slug' => $this->slug, 'beta' => ! empty( $this->api_data['beta'] ) ) );
+
+				$this->set_version_info_cache( $version_info );
 			}
 
-			if( ! is_object( $version_info ) ) {
+			if ( ! is_object( $version_info ) ) {
 				return;
 			}
 
-			if( version_compare( $this->version, $version_info->new_version, '<' ) ) {
+			if ( version_compare( $this->version, $version_info->new_version, '<' ) ) {
+
 				$update_cache->response[ $this->name ] = $version_info;
+
 			}
 
-			$update_cache->last_checked = time();
+			$update_cache->last_checked = current_time( 'timestamp' );
 			$update_cache->checked[ $this->name ] = $this->version;
 
 			set_site_transient( 'update_plugins', $update_cache );
@@ -207,7 +211,7 @@ class EPL_SL_Plugin_Updater {
 
 			if ( empty( $version_info->download_link ) ) {
 				printf(
-					__( 'There is a new version of %1$s available. %2$s View version %3$s details %4$s.', 'easy-property-listings' ),
+					__( 'There is a new version of %1$s available. %2$sView version %3$s details%4$s.', 'easy-property-listings' ),
 					esc_html( $version_info->name ),
 					'<a target="_blank" class="thickbox" href="' . esc_url( $changelog_link ) . '">',
 					esc_html( $version_info->new_version ),
@@ -215,7 +219,7 @@ class EPL_SL_Plugin_Updater {
 				);
 			} else {
 				printf(
-					__( 'There is a new version of %1$s available. %2$s View version %3$s details %4$s or %5$s update now %6$s.', 'easy-property-listings' ),
+					__( 'There is a new version of %1$s available. %2$sView version %3$s details%4$s or %5$supdate now%6$s.', 'easy-property-listings' ),
 					esc_html( $version_info->name ),
 					'<a target="_blank" class="thickbox" href="' . esc_url( $changelog_link ) . '">',
 					esc_html( $version_info->new_version ),
@@ -231,7 +235,6 @@ class EPL_SL_Plugin_Updater {
 		}
 	}
 
-
 	/**
 	 * Updates information on the "View version x.x details" page with custom data.
 	 *
@@ -243,7 +246,6 @@ class EPL_SL_Plugin_Updater {
 	 * @return object $_data
 	 */
 	public function plugins_api_filter( $_data, $_action = '', $_args = null ) {
-
 
 		if ( $_action != 'plugin_information' ) {
 
@@ -261,20 +263,34 @@ class EPL_SL_Plugin_Updater {
 			'slug'   => $this->slug,
 			'is_ssl' => is_ssl(),
 			'fields' => array(
-				'banners' => false, // These will be supported soon hopefully
+				'banners' => array(),
 				'reviews' => false
 			)
 		);
 
-		$api_response = $this->api_request( 'plugin_information', $to_send );
+		$cache_key = 'epl_api_request_' . md5( serialize( $this->slug . $this->api_data['license'] ) );
 
-		if ( false !== $api_response ) {
-			$_data = $api_response;
+		// Get the transient where we store the api request for this plugin for 24 hours
+		$epl_api_request_transient = $this->get_cached_version_info( $cache_key );
+
+		//If we have no transient-saved value, run the API, set a fresh transient with the API value, and return that value too right now.
+		if ( empty( $epl_api_request_transient ) ){
+
+			$api_response = $this->api_request( 'plugin_information', $to_send );
+
+			// Expires in 3 hours
+			$this->set_version_info_cache( $api_response, $cache_key );
+
+			if ( false !== $api_response ) {
+				$_data = $api_response;
+			}
+
+		} else {
+			$_data = $epl_api_request_transient;
 		}
 
 		return $_data;
 	}
-
 
 	/**
 	 * Disable SSL verification in order to prevent download update failures
@@ -324,7 +340,7 @@ class EPL_SL_Plugin_Updater {
 			'slug'       => $data['slug'],
 			'author'     => $data['author'],
 			'url'        => home_url(),
-			'beta'       => isset( $data['beta'] ) ? $data['beta'] : false,
+			'beta'       => ! empty( $data['beta'] ),
 		);
 
 		$request = wp_remote_post( $this->api_url, array( 'timeout' => 15, 'sslverify' => false, 'body' => $api_params ) );
@@ -337,6 +353,10 @@ class EPL_SL_Plugin_Updater {
 			$request->sections = maybe_unserialize( $request->sections );
 		} else {
 			$request = false;
+		}
+
+		if ( $request && isset( $request->banners ) ) {
+			$request->banners = maybe_unserialize( $request->banners );
 		}
 
 		return $request;
@@ -359,12 +379,12 @@ class EPL_SL_Plugin_Updater {
 		}
 
 		if( ! current_user_can( 'update_plugins' ) ) {
-			wp_die( __( 'You do not have permission to install plugin updates', 'easy-property-listings'  ), __( 'Error', 'easy-property-listings'  ), array( 'response' => 403 ) );
+			wp_die( __( 'You do not have permission to install plugin updates', 'easy-property-listings' ), __( 'Error', 'easy-property-listings' ), array( 'response' => 403 ) );
 		}
 
 		$data         = $epl_plugin_data[ $_REQUEST['slug'] ];
 		$cache_key    = md5( 'epl_plugin_' . sanitize_key( $_REQUEST['plugin'] ) . '_version_info' );
-		$version_info = get_transient( $cache_key );
+		$version_info = $this->get_cached_version_info( $cache_key );
 
 		if( false === $version_info ) {
 
@@ -374,7 +394,8 @@ class EPL_SL_Plugin_Updater {
 				'item_id'    => isset( $data['item_id'] ) ? $data['item_id'] : false,
 				'slug'       => $_REQUEST['slug'],
 				'author'     => $data['author'],
-				'url'        => home_url()
+				'url'        => home_url(),
+				'beta'       => ! empty( $data['beta'] )
 			);
 
 			$request = wp_remote_post( $this->api_url, array( 'timeout' => 15, 'sslverify' => false, 'body' => $api_params ) );
@@ -389,7 +410,7 @@ class EPL_SL_Plugin_Updater {
 				$version_info = false;
 			}
 
-			set_transient( $cache_key, $version_info, 3600 );
+			$this->set_version_info_cache( $version_info, $cache_key );
 
 		}
 
@@ -398,6 +419,37 @@ class EPL_SL_Plugin_Updater {
 		}
 
 		exit;
+	}
+
+	public function get_cached_version_info( $cache_key = '' ) {
+
+		if( empty( $cache_key ) ) {
+			$cache_key = $this->cache_key;
+		}
+
+		$cache = get_option( $cache_key );
+
+		if( empty( $cache['timeout'] ) || current_time( 'timestamp' ) > $cache['timeout'] ) {
+			return false; // Cache is expired
+		}
+
+		return json_decode( $cache['value'] );
+
+	}
+
+	public function set_version_info_cache( $value = '', $cache_key = '' ) {
+
+		if( empty( $cache_key ) ) {
+			$cache_key = $this->cache_key;
+		}
+
+		$data = array(
+			'timeout' => strtotime( '+3 hours', current_time( 'timestamp' ) ),
+			'value'   => json_encode( $value )
+		);
+
+		update_option( $cache_key, $data );
+
 	}
 
 }
